@@ -219,7 +219,7 @@ void set_arrange_hidden(Monitor *m, Client *c, bool want_animation) {
 		return;
 	}
 
-	if (!c->is_tab_hidden && !c->animation.tagouted &&
+	if (want_animation && !c->is_tab_hidden && !c->animation.tagouted &&
 		(c->tags & (1 << (m->pertag->prevtag - 1))) &&
 		m->pertag->prevtag != 0 && m->pertag->curtag != 0 &&
 		client_animations_enabled(c)) {
