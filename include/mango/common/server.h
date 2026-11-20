@@ -167,6 +167,9 @@ struct MangoServer {
 	double swipe_dy;
 
 	bool render_border;
+	bool runtime_border_colors_set;
+	float runtime_border_color[4];
+	float runtime_focus_color[4];
 
 	/* Other runtime state */
 	uint32_t chvt_backup_tag;
@@ -190,6 +193,7 @@ struct MangoServer {
 	/* Pre-baked animation curves */
 	struct dvec2 *baked_points_move;
 	struct dvec2 *baked_points_open;
+	struct dvec2 *baked_points_grow;
 	struct dvec2 *baked_points_tag;
 	struct dvec2 *baked_points_close;
 	struct dvec2 *baked_points_focus;

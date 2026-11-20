@@ -542,6 +542,7 @@ void reset_tag(int old_tag_num) {
 int32_t reload_config(const Arg *arg) {
 	int old_tag_num = config.tag_num;
 	parse_config();
+	reapply_runtime_border_colors();
 	reset_tag(old_tag_num);
 	reset_option();
 	update_seat_capabilities();

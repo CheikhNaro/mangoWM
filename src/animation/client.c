@@ -1327,6 +1327,14 @@ void client_animation_next_tick(Client *c) {
 
 		if (c->animation.tagouting) {
 			c->animation.tagouting = false;
+			{
+				FILE *dbg = fopen("/tmp/mango_sp_zoom.log", "a");
+				if (dbg) {
+					fprintf(dbg, "win tagout END now=%lld\n",
+							(long long)get_now_in_ms());
+					fclose(dbg);
+				}
+			}
 			client_update_visibility(c);
 			c->animation.tagouted = true;
 			c->animation.current = c->geom;
@@ -1544,7 +1552,7 @@ void client_set_pending_state(Client *c) {
 
 	if (!client_animations_enabled(c))
 		c->animation.should_animate = false;
-	else if (c->animation.tagining)
+	else if (c->animation.tagining || c->animation.tagouting)
 		c->animation.should_animate = true;
 	else if (c->animation.action == OVERVIEW &&
 			 c->animation.overview_enter_anim_set)
@@ -1949,6 +1957,50 @@ bool client_draw_frame(Client *c) {
 	}
 
 	bool need_fade_focus = client_set_focus_opacity(c);
+	if ((c->is_in_scratchpad || (c->tags & TAG0_MASK)) &&
+		config.scratchpad_animation_type == ANIM_TYPE_FADE) {
+		float opacity, deco;
+		if (c->animation.running &&
+			(c->animation.tagining || c->animation.tagouting)) {
+			struct timespec now;
+			clock_gettime(CLOCK_MONOTONIC, &now);
+			int32_t passed_time =
+				timespec_to_ms(&now) - c->animation.time_started;
+			double progress =
+				c->animation.duration
+					? (double)passed_time / (double)c->animation.duration
+					: 1.0;
+			progress = MANGO_MAX(0.0, MANGO_MIN(progress, 1.0));
+			double eased = find_animation_curve_at(progress, TAG);
+			opacity =
+				c->animation.tagining
+					? c->scratchpad_animation_start_opacity +
+						  (1.0f - c->scratchpad_animation_start_opacity) * eased
+					: c->scratchpad_animation_start_opacity * (1.0 - eased);
+			opacity = CLAMP_FLOAT(opacity, 0.0f, 1.0f);
+			/* Decorations (border, blur) are thin, saturated elements: the
+			 * ease-out tail keeps them faintly visible long after the window
+			 * content has vanished. Give them a steeper tail when fading out
+			 * so they disappear with the content. */
+			deco = c->animation.tagouting ? opacity * opacity : opacity;
+		} else if (c->isminimized) {
+			opacity = deco = 0.0f;
+		} else {
+			opacity = deco = 1.0f;
+		}
+		c->scratchpad_animation_opacity = opacity;
+		c->scratchpad_animation_deco_opacity = deco;
+		client_set_opacity(c, c->opacity_animation.current_opacity * opacity);
+		/* The blur is a separate scene node that ignores client opacity:
+		 * fade its alpha with the window so it does not linger. */
+		if (c->blur && config.blur && !c->no_blur)
+			wlr_scene_blur_set_alpha(c->blur, deco);
+		/* Borders and the unfocused-dim overlay are rects, also unaffected by
+		 * client opacity: client_set_state_colors() fades them via the
+		 * scratchpad-fade hook. */
+		client_set_state_colors(c, c->opacity_animation.current_border_color,
+								c->opacity_animation.current_dim_color);
+	}
 
 	return need_next_tick || need_fade_focus;
 }

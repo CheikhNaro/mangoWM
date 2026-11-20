@@ -90,6 +90,8 @@ int32_t group_focus(const Arg *arg);
 int32_t change_vt(const Arg *arg);
 int32_t reload_config(const Arg *arg);
 int32_t load_config_file(const Arg *arg);
+int32_t set_border_colors(const Arg *arg);
+void reapply_runtime_border_colors(void);
 int32_t smart_move_window(const Arg *arg);
 int32_t smart_resize_window(const Arg *arg);
 int32_t center_window(const Arg *arg);

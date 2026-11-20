@@ -767,6 +767,10 @@ FuncType parse_func_name(char *func_name, Arg *arg, char *arg_value,
 		(*arg).i = atoi(arg_value);
 	} else if (strcmp(func_name, "reload_config") == 0) {
 		func = reload_config;
+	} else if (strcmp(func_name, "set_border_colors") == 0) {
+		func = set_border_colors;
+		(*arg).v = strdup(arg_value ? arg_value : "");
+		(*arg).v2 = strdup(arg_value2 ? arg_value2 : "");
 	} else if (strcmp(func_name, "load_config_file") == 0) {
 		func = load_config_file;
 		(*arg).v = strdup(arg_value);

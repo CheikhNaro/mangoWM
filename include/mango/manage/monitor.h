@@ -60,6 +60,7 @@ struct Monitor {
 	Pertag *pertag;
 	uint32_t ovbk_current_tagset;
 	uint32_t ovbk_prev_tagset;
+	Client *ovbk_sel;
 	Client *sel, *prevsel;
 	int32_t isoverview;
 	int32_t is_jump_mode;
@@ -77,6 +78,14 @@ struct Monitor {
 	uint32_t hide_clients;
 	struct wlr_scene_optimized_blur *blur;
 	struct wlr_scene_rect *special_dim_rect;
+	struct wlr_scene_blur *special_blur; /* Blurred backdrop of the special
+											view, under special_dim_rect. */
+	/* Animated alpha of the special view background (dim rect + blur). */
+	float special_bg_alpha;
+	bool special_bg_animating;
+	int64_t special_bg_anim_start;
+	float special_bg_anim_from;
+	struct wl_event_source *special_bg_anim_timer;
 	MangoBarDecoration *title_message_bar;
 	char last_open_surface[256];
 	struct wlr_ext_workspace_group_handle_v1 *ext_group;

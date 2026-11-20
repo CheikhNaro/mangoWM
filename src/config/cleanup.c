@@ -31,6 +31,10 @@ void free_baked_points(void) {
 		free(server.baked_points_open);
 		server.baked_points_open = NULL;
 	}
+	if (server.baked_points_grow) {
+		free(server.baked_points_grow);
+		server.baked_points_grow = NULL;
+	}
 	if (server.baked_points_close) {
 		free(server.baked_points_close);
 		server.baked_points_close = NULL;

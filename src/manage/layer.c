@@ -165,10 +165,20 @@ void iter_layer_scene_buffers(struct wlr_scene_buffer *buffer, int32_t sx,
 	}
 
 	LayerSurface *l = (LayerSurface *)user_data;
+	struct wlr_surface *surface = scene_surface->surface;
 
 	wlr_scene_node_set_enabled(&l->blur->node, true);
 	wlr_scene_blur_set_transparency_mask_source(l->blur, buffer);
-	wlr_scene_blur_set_size(l->blur, l->geom.width, l->geom.height);
+	/*
+	 * Size the blur like the surface buffer that actually gets rendered, not
+	 * like the layer geometry. Some clients (GTK layer-shell apps such as
+	 * wlogout) attach a buffer larger than the configured layer size; the
+	 * transparency mask is sampled in the blur node's coordinate space, so a
+	 * mismatch offsets the mask and makes the blur leak outside the window.
+	 */
+	if (surface->current.width > 0 && surface->current.height > 0)
+		wlr_scene_blur_set_size(l->blur, surface->current.width,
+								surface->current.height);
 	wlr_scene_blur_set_should_only_blur_bottom_layer(
 		l->blur, layer_blur_uses_wallpaper(l));
 }
@@ -251,14 +261,24 @@ void handle_layer_surface_map(struct wl_listener *listener, void *data) {
 			wlr_scene_node_lower_to_bottom(&l->shadow->node);
 			wlr_scene_node_set_enabled(&l->shadow->node, true);
 		}
+	}
 
+	if (layer_surface->current.layer !=
+		ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND) {
 		l->blur = wlr_scene_blur_create(l->scene, 0, 0);
 		wlr_scene_node_lower_to_bottom(&l->blur->node);
+		if (l->no_blur)
+			wlr_scene_node_set_enabled(&l->blur->node, false);
 	}
 
 	// Initializes the animation.
 	if (config.animations && config.layer_animations && !l->no_animation) {
-		l->animation.duration = config.animation_duration_open;
+		l->animation.duration =
+			(l->animation_type_open != ANIM_TYPE_UNSET
+				 ? l->animation_type_open
+				 : config.layer_animation_type_open) == ANIM_TYPE_GROW
+				? config.animation_duration_grow
+				: config.animation_duration_open;
 		l->animation.action = OPEN;
 		layer_set_pending_state(l);
 	} else {
@@ -344,7 +364,6 @@ void handle_layer_surface_commit(struct wl_listener *listener, void *data) {
 	if (config.blur && config.blur_layer) {
 
 		if (!l->no_blur &&
-			layer_surface->current.layer != ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM &&
 			layer_surface->current.layer !=
 				ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND &&
 			l->blur) {

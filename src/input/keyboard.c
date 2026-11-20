@@ -727,14 +727,13 @@ void handle_keyboard_key(struct wl_listener *listener, void *data) {
 
 	wlr_idle_notifier_v1_notify_activity(server.idle_notifier, server.seat);
 
-	// In overcircle mode, releasing the mode key exits overview.
 	if (server.selected_monitor && server.selected_monitor->ov_tab_layout &&
 		!server.selected_monitor->is_jump_mode &&
-		server.selected_monitor->isoverview && server.selected_monitor->sel &&
+		server.selected_monitor->isoverview &&
 		!server.session_locked && !group->virtual_keyboard &&
 		event->state == WL_KEYBOARD_KEY_STATE_RELEASED &&
 		ISMODEKEYCODE(keycode)) {
-		toggle_overview(&(Arg){0});
+		leave_overview(&(Arg){0});
 	}
 
 	if (switcher_is_active()) {

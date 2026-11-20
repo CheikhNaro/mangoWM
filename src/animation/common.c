@@ -16,6 +16,8 @@ struct dvec2 calculate_animation_curve_at(double t, int32_t type) {
 		animation_curve = config.animation_curve_move;
 	} else if (type == OPEN) {
 		animation_curve = config.animation_curve_open;
+	} else if (type == GROW) {
+		animation_curve = config.animation_curve_grow;
 	} else if (type == TAG) {
 		animation_curve = config.animation_curve_tag;
 	} else if (type == CLOSE) {
@@ -48,6 +50,8 @@ void init_baked_points(void) {
 		calloc(BAKED_POINTS_COUNT, sizeof(*server.baked_points_move));
 	server.baked_points_open =
 		calloc(BAKED_POINTS_COUNT, sizeof(*server.baked_points_open));
+	server.baked_points_grow =
+		calloc(BAKED_POINTS_COUNT, sizeof(*server.baked_points_grow));
 	server.baked_points_tag =
 		calloc(BAKED_POINTS_COUNT, sizeof(*server.baked_points_tag));
 	server.baked_points_close =
@@ -66,6 +70,10 @@ void init_baked_points(void) {
 	for (int32_t i = 0; i < BAKED_POINTS_COUNT; i++) {
 		server.baked_points_open[i] = calculate_animation_curve_at(
 			(double)i / (BAKED_POINTS_COUNT - 1), OPEN);
+	}
+	for (int32_t i = 0; i < BAKED_POINTS_COUNT; i++) {
+		server.baked_points_grow[i] = calculate_animation_curve_at(
+			(double)i / (BAKED_POINTS_COUNT - 1), GROW);
 	}
 	for (int32_t i = 0; i < BAKED_POINTS_COUNT; i++) {
 		server.baked_points_tag[i] = calculate_animation_curve_at(
@@ -98,6 +106,8 @@ double find_animation_curve_at(double t, int32_t type) {
 		baked_points = server.baked_points_move;
 	} else if (type == OPEN) {
 		baked_points = server.baked_points_open;
+	} else if (type == GROW) {
+		baked_points = server.baked_points_grow;
 	} else if (type == TAG) {
 		baked_points = server.baked_points_tag;
 	} else if (type == CLOSE) {
