@@ -106,6 +106,7 @@ struct Client {
 	struct wl_listener dissociate;
 	struct wl_listener configure;
 	struct wl_listener set_hints;
+	struct wl_listener set_size_hints;
 	struct wl_listener set_geometry;
 	struct wl_listener commmitx11;
 	struct wlr_scene_buffer *xwl_root_buffer;
@@ -186,6 +187,9 @@ struct Client {
 	bool drag_to_tile;
 	bool scratchpad_switching_mon;
 	bool scratchpad_tagin;
+	float scratchpad_animation_opacity;
+	float scratchpad_animation_deco_opacity;
+	float scratchpad_animation_start_opacity;
 	bool fake_no_border;
 	int32_t no_focus;
 	int32_t no_fade_in;
@@ -527,6 +531,8 @@ void handle_xwayland_surface_dissociate(struct wl_listener *listener,
 										void *data);
 void handle_xwayland_surface_set_hints(struct wl_listener *listener,
 									   void *data);
+void handle_xwayland_surface_set_size_hints(struct wl_listener *listener,
+											void *data);
 void handle_xwayland_ready(struct wl_listener *listener, void *data);
 void handle_xwayland_surface_set_geometry(struct wl_listener *listener,
 										  void *data);

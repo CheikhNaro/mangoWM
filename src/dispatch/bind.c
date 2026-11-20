@@ -2358,12 +2358,18 @@ void set_overview(const Arg *arg, bool enter, Monitor *m) {
 	uint32_t visible_client_number = 0;
 	bool only_current = false;
 	uint32_t current_tags = 0;
+	Client *entry_sel = m ? m->sel : NULL;
+	bool entry_sel_visible = m && entry_sel && VISIBLEON(entry_sel, m);
 
 	if (!arg || !m || m->is_ws_overview)
 		return;
 
 	only_current = arg->i == 1;
-	sel = arg->tc ? arg->tc : m->sel;
+	/* Exit without an explicit target: confirm the window currently focused
+	 * in the overview (cycled by over_circle) instead of the entry one. */
+	bool confirm =
+		!enter && !arg->tc && m->sel && m->sel != m->ovbk_sel;
+	sel = arg->tc ? arg->tc : (confirm ? m->sel : (enter ? m->sel : m->ovbk_sel));
 	m->isoverview = enter;
 
 	if (!enter) {
@@ -2386,15 +2392,21 @@ void set_overview(const Arg *arg, bool enter, Monitor *m) {
 		if (visible_client_number > 0) {
 			m->ovbk_current_tagset = m->tagset[m->seltags];
 			m->ovbk_prev_tagset = m->tagset[m->seltags ^ 1];
+			m->ovbk_sel = entry_sel_visible ? entry_sel : NULL;
 			target = only_current ? current_tags : (~0 & TAGMASK);
 		} else {
 			m->isoverview = false;
 			m->ov_tab_layout = 0;
+			m->ovbk_sel = NULL;
 			title_message_bar_hide(m);
 			return;
 		}
-	} else if (sel && (sel->tags & TAGMASK) != 0) {
-		target = get_tags_first_tag(sel->tags);
+	} else if (arg->tc && (arg->tc->tags & TAGMASK) != 0) {
+		target = get_tags_first_tag(arg->tc->tags);
+	} else if (confirm && (m->sel->tags & TAGMASK) != 0) {
+		/* Cycled window lives on another tag: view its tag so it can be
+		 * focused below. */
+		target = get_tags_first_tag(m->sel->tags);
 	} else {
 		target =
 			m->ovbk_current_tagset
@@ -2446,7 +2458,7 @@ void set_overview(const Arg *arg, bool enter, Monitor *m) {
 		}
 	}
 
-	client_view_on_monitor(&(Arg){.ui = target}, false, m, true);
+	client_view_on_monitor(&(Arg){.ui = target}, enter, m, true);
 
 	/* Tab layout: rearrange after entering. */
 	if (enter && !m->is_jump_mode && !m->ov_normal_mode) {
@@ -2465,6 +2477,8 @@ void set_overview(const Arg *arg, bool enter, Monitor *m) {
 	if (!enter && sel && (sel->tags & target)) {
 		client_focus(sel, 1);
 	}
+	if (!enter)
+		m->ovbk_sel = NULL;
 
 	return;
 }
@@ -2473,8 +2487,9 @@ int32_t toggle_overview(const Arg *arg) {
 	if (!server.selected_monitor || server.grab_client)
 		return 0;
 
-	set_overview(arg, !server.selected_monitor->isoverview,
-				 server.selected_monitor);
+	Monitor *m = server.selected_monitor;
+	Arg overview_arg = arg ? *arg : (Arg){0};
+	set_overview(&overview_arg, !m->isoverview, m);
 	return 0;
 }
 
@@ -2817,4 +2832,43 @@ int32_t load_config_file(const Arg *arg) {
 	snprintf(server.cli_config_path, sizeof(server.cli_config_path), "%s",
 			 arg->v);
 	return reload_config(arg);
+}
+
+int32_t set_border_colors(const Arg *arg) {
+	if (!arg || !arg->v || !arg->v[0] || !arg->v2 || !arg->v2[0]) {
+		mango_error(false, WLR_ERROR,
+					"set_border_colors requires inactive and focused colors in 0xRRGGBBAA format\n");
+		return 0;
+	}
+
+	int64_t border_color = parse_color(arg->v);
+	int64_t focus_color = parse_color(arg->v2);
+	if (border_color < 0 || border_color > UINT32_MAX ||
+		focus_color < 0 || focus_color > UINT32_MAX) {
+		mango_error(false, WLR_ERROR, "Invalid window border colors: %s, %s\n",
+					arg->v, arg->v2);
+		return 0;
+	}
+
+	convert_hex_to_rgba(server.runtime_border_color, (uint32_t)border_color);
+	convert_hex_to_rgba(server.runtime_focus_color, (uint32_t)focus_color);
+	server.runtime_border_colors_set = true;
+	reapply_runtime_border_colors();
+
+	return 1;
+}
+
+void reapply_runtime_border_colors(void) {
+	if (!server.runtime_border_colors_set)
+		return;
+
+	memcpy(config.bordercolor, server.runtime_border_color,
+		   sizeof(config.bordercolor));
+	memcpy(config.focuscolor, server.runtime_focus_color,
+		   sizeof(config.focuscolor));
+
+	Client *c;
+	wl_list_for_each(c, &server.clients, link) {
+		client_update_border_color(c);
+	}
 }

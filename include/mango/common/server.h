@@ -167,6 +167,9 @@ struct MangoServer {
 	double swipe_dy;
 
 	bool render_border;
+	bool runtime_border_colors_set;
+	float runtime_border_color[4];
+	float runtime_focus_color[4];
 
 	/* Other runtime state */
 	uint32_t chvt_backup_tag;

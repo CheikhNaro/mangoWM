@@ -171,6 +171,8 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 		config->animation_duration_move = atoi(value);
 	} else if (strcmp(key, "animation_duration_open") == 0) {
 		config->animation_duration_open = atoi(value);
+	} else if (strcmp(key, "animation_duration_grow") == 0) {
+		config->animation_duration_grow = atoi(value);
 	} else if (strcmp(key, "animation_duration_tag") == 0) {
 		config->animation_duration_tag = atoi(value);
 	} else if (strcmp(key, "animation_duration_close") == 0) {
@@ -199,6 +201,15 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 			mango_error(false, WLR_ERROR,
 						"Failed to parse "
 						"animation_curve_open: \033[1m\033[31m%s\033[0m\n",
+						value);
+			return false;
+		}
+	} else if (strcmp(key, "animation_curve_grow") == 0) {
+		if (!parse_animation_curve_value(&config->animation_curve_grow,
+										 value)) {
+			mango_error(false, WLR_ERROR,
+						"Failed to parse "
+						"animation_curve_grow: \033[1m\033[31m%s\033[0m\n",
 						value);
 			return false;
 		}
@@ -1060,6 +1071,17 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 		config->scratchpad_width_ratio = atof(value);
 	} else if (strcmp(key, "scratchpad_height_ratio") == 0) {
 		config->scratchpad_height_ratio = atof(value);
+	} else if (strcmp(key, "scratchpad_animation_type") == 0) {
+		int32_t type = animation_type_from_string(value);
+		if (type != ANIM_TYPE_NONE && type != ANIM_TYPE_FADE &&
+			type != ANIM_TYPE_SLIDE && type != ANIM_TYPE_ZOOM) {
+			mango_error(false, WLR_ERROR,
+						"scratchpad_animation_type must be none, fade, slide "
+						"or zoom, got: %s\n",
+						value);
+			return false;
+		}
+		config->scratchpad_animation_type = type;
 	} else if (strcmp(key, "special_dim") == 0) {
 		config->special_dim = atof(value);
 	} else if (strcmp(key, "special_gap_inner_horizontal") == 0) {
@@ -2545,6 +2567,7 @@ void set_value_default() {
 	config.fadeout_begin_opacity = 0.5f;
 	config.animation_duration_move = 500;
 	config.animation_duration_open = 400;
+	config.animation_duration_grow = 400;
 	config.animation_duration_tag = 300;
 	config.animation_duration_close = 300;
 	config.animation_duration_focus = 0;
@@ -2588,6 +2611,7 @@ void set_value_default() {
 	config.gappov = 10;
 	config.scratchpad_width_ratio = 0.8f;
 	config.scratchpad_height_ratio = 0.9f;
+	config.scratchpad_animation_type = ANIM_TYPE_SLIDE;
 	config.special_dim = 0.5f;
 	config.special_gappih = 10;
 	config.special_gappiv = 10;
@@ -2603,7 +2627,7 @@ void set_value_default() {
 	config.scroller_prefer_overspread = 1;
 	config.edge_scroller_pointer_focus = 1;
 	config.edge_scroller_focus_allow_speed = 0.0f;
-	config.focus_cross_monitor = 0;
+	config.focus_cross_monitor = 1;
 	config.focusdir_only_zone_overlap = 1;
 	config.exchange_cross_monitor = 0;
 	config.scratchpad_cross_monitor = 0;
@@ -2749,6 +2773,7 @@ void set_value_default() {
 
 	set_bezier_curve(&config.animation_curve_move, 0.46, 1.0, 0.29, 0.99);
 	set_bezier_curve(&config.animation_curve_open, 0.46, 1.0, 0.29, 0.99);
+	set_bezier_curve(&config.animation_curve_grow, 0.46, 1.0, 0.29, 0.99);
 	set_bezier_curve(&config.animation_curve_tag, 0.46, 1.0, 0.29, 0.99);
 	set_bezier_curve(&config.animation_curve_close, 0.46, 1.0, 0.29, 0.99);
 	set_bezier_curve(&config.animation_curve_focus, 0.46, 1.0, 0.29, 0.99);
@@ -2898,6 +2923,8 @@ void override_config(void) {
 		CLAMP_INT(config.animation_duration_move, 0, 50000);
 	config.animation_duration_open =
 		CLAMP_INT(config.animation_duration_open, 0, 50000);
+	config.animation_duration_grow =
+		CLAMP_INT(config.animation_duration_grow, 0, 50000);
 	config.animation_duration_tag =
 		CLAMP_INT(config.animation_duration_tag, 0, 50000);
 	config.animation_duration_close =

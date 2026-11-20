@@ -390,16 +390,45 @@ void client_send_close(Client *c) {
 	if (c->surface.xdg && c->surface.xdg->toplevel)
 		wlr_xdg_toplevel_send_close(c->surface.xdg->toplevel);
 }
+/* True while the client is running a scratchpad fade (in or out): borders and
+ * the dim overlay are rects that ignore client opacity, so every color write
+ * must be faded with the window. */
+static bool client_in_scratchpad_fade(const Client *c) {
+	return c && config.scratchpad_animation_type == ANIM_TYPE_FADE &&
+		   c->animation.running &&
+		   (c->animation.tagining || c->animation.tagouting) &&
+		   (c->is_in_scratchpad || (c->tags & TAG0_MASK));
+}
+
 void client_set_border_color(Client *c, const float color[4]) {
+	if (client_in_scratchpad_fade(c)) {
+		float faded[4];
+		memcpy(faded, color, sizeof(faded));
+		faded[3] *= c->scratchpad_animation_deco_opacity;
+		/* scenefx blends rects as premultiplied alpha while the quad shader
+		 * outputs a straight color: rgb + dst*(1-a). Premultiply rgb ourselves
+		 * so the border actually fades out (opaque paths are unchanged). */
+		if (faded[3] < 0.999f) {
+			faded[0] *= faded[3];
+			faded[1] *= faded[3];
+			faded[2] *= faded[3];
+		}
+		wlr_scene_rect_set_color(c->border, faded);
+		return;
+	}
 	wlr_scene_rect_set_color(c->border, color);
 }
 
 void client_set_state_colors(Client *c, const float border_color[4],
 							 const float dim_color[4]) {
+	float faded_dim[4];
+	memcpy(faded_dim, dim_color, sizeof(faded_dim));
+	if (client_in_scratchpad_fade(c))
+		faded_dim[3] *= c->scratchpad_animation_opacity;
 	client_set_border_color(c, border_color);
 
 	if (c->dim_node) {
-		mango_dim_node_set_color(c->dim_node, dim_color);
+		mango_dim_node_set_color(c->dim_node, faded_dim);
 	}
 }
 
@@ -643,9 +672,11 @@ uint32_t client_set_size(Client *c, uint32_t width, uint32_t height,
 		int32_t width = xw;
 		int32_t height = xh;
 
-		if (size_hints && xw < (int32_t)size_hints->min_width)
+		if (!c->no_size_hint && size_hints &&
+			xw < (int32_t)size_hints->min_width)
 			width = size_hints->min_width;
-		if (size_hints && xh < (int32_t)size_hints->min_height)
+		if (!c->no_size_hint && size_hints &&
+			xh < (int32_t)size_hints->min_height)
 			height = size_hints->min_height;
 
 		/*
@@ -1802,9 +1833,16 @@ void client_set_rules(Client *c, Monitor **rule_mon, uint32_t *rule_tags) {
 	if (mon)
 		set_size_per(mon, c, false);
 
+	if (parent && !c->iscustompos) {
+		c->geom.x = parent->geom.x + (parent->geom.width - c->geom.width) / 2;
+		c->geom.y =
+			parent->geom.y + (parent->geom.height - c->geom.height) / 2;
+		c->float_geom = c->geom;
+	}
+
 	// if no geom rule hit and is normal winodw, use the center pos and record
 	// the hit size
-	if (!c->iscustompos &&
+	if (!parent && !c->iscustompos &&
 		(!client_is_x11(c) || (c->geom.x == 0 && c->geom.y == 0))) {
 		struct wlr_box pending_center_geom =
 			c->iscustomsize ? c->float_geom : c->geom;
@@ -1887,7 +1925,6 @@ void client_set_rules(Client *c, Monitor **rule_mon, uint32_t *rule_tags) {
 
 	if (c->isfloating && !c->iscustompos && !c->isnamedscratchpad) {
 		wl_list_safe_reinsert_prev(&server.clients, &c->link);
-		set_float_malposition(c);
 	}
 
 	// apply named scratchpad rule
@@ -2221,6 +2258,8 @@ void init_client_properties(Client *c) {
 	c->drag_to_tile = false;
 	c->scratchpad_switching_mon = false;
 	c->scratchpad_tagin = false;
+	c->scratchpad_animation_opacity = 1.0f;
+	c->scratchpad_animation_deco_opacity = 1.0f;
 	c->fake_no_border = false;
 	c->focused_opacity = config.focused_opacity;
 	c->unfocused_opacity = config.unfocused_opacity;
@@ -2665,6 +2704,8 @@ void handle_client_unmap(struct wl_listener *listener, void *data) {
 	}
 
 	wl_list_for_each(m, &server.monitors, link) {
+		if (c == m->ovbk_sel)
+			m->ovbk_sel = NULL;
 		if (!m->wlr_output->enabled) {
 			continue;
 		}
@@ -2800,6 +2841,7 @@ void handle_client_destroy(struct wl_listener *listener, void *data) {
 		wl_list_remove(&c->configure.link);
 		wl_list_remove(&c->dissociate.link);
 		wl_list_remove(&c->set_hints.link);
+		wl_list_remove(&c->set_size_hints.link);
 	} else
 #endif
 	{
@@ -3365,6 +3407,9 @@ void client_set_monitor(Client *c, Monitor *m, uint32_t newtags, bool focus) {
 
 	if (oldmon && oldmon->prevsel == c) {
 		oldmon->prevsel = NULL;
+	}
+	if (oldmon && oldmon->ovbk_sel == c) {
+		oldmon->ovbk_sel = NULL;
 	}
 
 	c->mon = m;
@@ -4156,6 +4201,8 @@ static void client_reassign_monitor(Client *c, Monitor *m) {
 		old_mon->sel = NULL;
 	if (old_mon->prevsel == c)
 		old_mon->prevsel = NULL;
+	if (old_mon->ovbk_sel == c)
+		old_mon->ovbk_sel = NULL;
 
 	c->mon = m;
 	if (!VISIBLEON(c, m))
@@ -4200,6 +4247,7 @@ void client_move_to_monitor(Client *c, Client *target, int32_t dir) {
 
 	bool insert_before = (dir == RIGHT || dir == UP);
 
+	dwindle_remove_client(c);
 	client_reassign_monitor(c, dst_mon);
 
 	if (layout->id == SCROLLER || layout->id == VERTICAL_SCROLLER) {
@@ -5065,6 +5113,8 @@ void handle_new_xwayland_surface(struct wl_listener *listener, void *data) {
 		   handle_client_request_fullscreen);
 	LISTEN(&xsurface->events.set_hints, &c->set_hints,
 		   handle_xwayland_surface_set_hints);
+	LISTEN(&xsurface->events.set_size_hints, &c->set_size_hints,
+		   handle_xwayland_surface_set_size_hints);
 	LISTEN(&xsurface->events.set_title, &c->set_title, handle_client_set_title);
 	LISTEN(&xsurface->events.request_maximize, &c->maximize,
 		   handle_client_request_maximize);
@@ -5136,6 +5186,30 @@ void handle_xwayland_surface_set_hints(struct wl_listener *listener,
 
 	if (c->isurgent && surface && surface->mapped)
 		client_update_border_color(c);
+}
+
+/*
+ * WM_NORMAL_HINTS often arrives after the first map (GTK notably sets it
+ * during realize). Re-apply the size bounds so a window rule that sets a
+ * custom size cannot keep the client below its minimum or above its maximum.
+ */
+void handle_xwayland_surface_set_size_hints(struct wl_listener *listener,
+											void *data) {
+	Client *c = wl_container_of(listener, c, set_size_hints);
+	struct wlr_surface *surface = client_surface(c);
+
+	if (!c || c->iskilling || !c->mon || !surface || !surface->mapped)
+		return;
+	if (client_is_unmanaged(c) || !c->isfloating || c->no_size_hint ||
+		c->ismaximizescreen || c->isfullscreen)
+		return;
+	if (!c->surface.xwayland->size_hints)
+		return;
+
+	struct wlr_box old_geom = c->geom;
+	client_set_size_bound(c);
+	if (!wlr_box_equal(&old_geom, &c->geom))
+		resize(c, c->geom, (ResizeOpts){.interact = 0});
 }
 
 void handle_xwayland_ready(struct wl_listener *listener, void *data) {

@@ -26,8 +26,10 @@
 #include "mango/manage/xwayland_primary.h"
 #include "mango/workspace_overview/workspace_overview.h"
 #include <fcntl.h>
+#include <stdio.h>
 #include <scenefx/render/fx_renderer/fx_renderer.h>
 #include <scenefx/types/wlr_scene.h>
+#include <math.h>
 #include <unistd.h>
 #include <wlr/backend.h>
 #include <wlr/backend/headless.h>
@@ -164,19 +166,115 @@ void special_sync_top_layer(bool special_active) {
 }
 
 // sync the special overlay dim layer to the monitor and view state
+static void special_bg_set_alpha(Monitor *m, float alpha) {
+	alpha = CLAMP_FLOAT(alpha, 0.0f, 1.0f);
+	m->special_bg_alpha = alpha;
+	if (m->special_dim_rect) {
+		wlr_scene_rect_set_color(
+			m->special_dim_rect, (float[4]){0.0f, 0.0f, 0.0f, alpha});
+		wlr_scene_node_set_enabled(&m->special_dim_rect->node,
+								   alpha > 0.001f);
+	}
+	if (m->special_blur) {
+		wlr_scene_node_set_enabled(&m->special_blur->node,
+								   config.blur && alpha > 0.001f);
+		if (config.blur)
+			wlr_scene_blur_set_alpha(m->special_blur, alpha);
+	}
+}
+
+static int special_bg_anim_tick(void *data) {
+	Monitor *m = data;
+	if (!m || !m->special_bg_animating)
+		return 0;
+
+	float duration = config.animation_duration_tag;
+	if (duration <= 0)
+		duration = 1;
+	float goal = is_special_active(m) ? config.special_dim : 0.0f;
+	float progress = (get_now_in_ms() - m->special_bg_anim_start) / duration;
+
+	if (progress >= 1.0f) {
+		special_bg_set_alpha(m, goal);
+		m->special_bg_animating = false;
+		{
+			FILE *dbg = fopen("/tmp/mango_sp_zoom.log", "a");
+			if (dbg) {
+				fprintf(dbg,
+						"bg END goal=%.3f from=%.3f type=%d zoom_hide=%d\n",
+						goal, m->special_bg_anim_from,
+						config.scratchpad_animation_type,
+						goal < m->special_bg_anim_from &&
+							config.scratchpad_animation_type ==
+								ANIM_TYPE_ZOOM);
+				fclose(dbg);
+			}
+		}
+	} else {
+		/* Zoom-out windows keep shrinking until the very end: keep the
+		 * backdrop alpha linear so it disappears with them instead of
+		 * vanishing early with the ease-out curve. */
+		bool zoom_hide = goal < m->special_bg_anim_from &&
+						 config.scratchpad_animation_type == ANIM_TYPE_ZOOM;
+		double eased = zoom_hide ? progress
+								 : find_animation_curve_at(progress, TAG);
+		float new_alpha = m->special_bg_anim_from +
+						  (goal - m->special_bg_anim_from) * eased;
+		special_bg_set_alpha(m, new_alpha);
+		{
+			static int ticks;
+			if (ticks++ % 5 == 0) {
+				FILE *dbg = fopen("/tmp/mango_sp_zoom.log", "a");
+				if (dbg) {
+					fprintf(dbg,
+							"bg tick prog=%.3f eased=%.3f alpha=%.3f "
+							"goal=%.3f from=%.3f zoom_hide=%d type=%d\n",
+							progress, eased, new_alpha, goal,
+							m->special_bg_anim_from, zoom_hide,
+							config.scratchpad_animation_type);
+					fclose(dbg);
+				}
+			}
+		}
+		wl_event_source_timer_update(m->special_bg_anim_timer, 16);
+	}
+	wlr_output_schedule_frame(m->wlr_output);
+	return 0;
+}
+
+static void special_bg_start_anim(Monitor *m, float goal) {
+	if (!m->special_bg_animating &&
+		fabsf(m->special_bg_alpha - goal) < 0.001f)
+		return;
+
+	m->special_bg_anim_from = m->special_bg_alpha;
+	m->special_bg_anim_start = get_now_in_ms();
+	m->special_bg_animating = true;
+	if (!m->special_bg_anim_timer)
+		m->special_bg_anim_timer = wl_event_loop_add_timer(
+			server.event_loop, special_bg_anim_tick, m);
+	wl_event_source_timer_update(m->special_bg_anim_timer, 16);
+}
+
 void special_update_dim(Monitor *m) {
 	if (!m || !m->special_dim_rect)
 		return;
 	wlr_scene_rect_set_size(m->special_dim_rect, m->m.width, m->m.height);
 	wlr_scene_node_set_position(&m->special_dim_rect->node, m->m.x, m->m.y);
-	if (is_special_active(m)) {
-		wlr_scene_rect_set_color(
-			m->special_dim_rect,
-			(float[4]){0.0f, 0.0f, 0.0f, config.special_dim});
-		wlr_scene_node_set_enabled(&m->special_dim_rect->node, true);
-	} else {
-		wlr_scene_node_set_enabled(&m->special_dim_rect->node, false);
+	if (m->special_blur) {
+		wlr_scene_blur_set_size(m->special_blur, m->m.width, m->m.height);
+		wlr_scene_node_set_position(&m->special_blur->node, m->m.x, m->m.y);
 	}
+	float goal = is_special_active(m) ? config.special_dim : 0.0f;
+	if (goal > 0.0f) {
+		/* Keep the layer enabled while fading in. */
+		wlr_scene_node_set_enabled(&m->special_dim_rect->node, true);
+	} else if (m->special_bg_alpha <= 0.001f) {
+		m->special_bg_animating = false;
+		special_bg_set_alpha(m, 0.0f);
+		return;
+	}
+	special_bg_start_anim(m, goal);
 }
 
 uint32_t get_tag_status(uint32_t tag, Monitor *m) {
@@ -882,7 +980,20 @@ void handle_new_output(struct wl_listener *listener, void *data) {
 
 	m->special_dim_rect = wlr_scene_rect_create(
 		server.layers[LyrSpecialDim], m->m.width, m->m.height,
-		(float[4]){0.0f, 0.0f, 0.0f, config.special_dim});
+		(float[4]){0.0f, 0.0f, 0.0f, 0.0f});
+	if (config.blur) {
+		m->special_blur = wlr_scene_blur_create(server.layers[LyrSpecialDim],
+												0, 0);
+		if (m->special_blur) {
+			wlr_scene_blur_set_size(m->special_blur, m->m.width, m->m.height);
+			wlr_scene_node_set_position(&m->special_blur->node, m->m.x,
+										m->m.y);
+			/* Below the dim rect, above everything outside this layer. */
+			wlr_scene_node_lower_to_bottom(&m->special_blur->node);
+			wlr_scene_node_set_enabled(&m->special_blur->node, false);
+		}
+	}
+	m->special_bg_alpha = 0.0f;
 	special_update_dim(m);
 
 	// ext workspace group
@@ -968,6 +1079,15 @@ void handle_output_destroy(struct wl_listener *listener, void *data) {
 		wlr_scene_node_destroy(&m->special_dim_rect->node);
 		m->special_dim_rect = NULL;
 	}
+	if (m->special_blur) {
+		wlr_scene_node_destroy(&m->special_blur->node);
+		m->special_blur = NULL;
+	}
+	if (m->special_bg_anim_timer) {
+		wl_event_source_remove(m->special_bg_anim_timer);
+		m->special_bg_anim_timer = NULL;
+	}
+	m->special_bg_animating = false;
 	title_message_bar_finish(m);
 	if (m->skip_frame_timeout) {
 		monitor_stop_skip_frame_timer(m);

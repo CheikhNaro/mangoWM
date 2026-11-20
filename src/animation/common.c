@@ -24,6 +24,8 @@ static struct dvec2 calculate_bezier_curve_for(double t,
 static const AnimationCurve *animation_curve_for_type(int32_t type) {
 	if (type == OPEN)
 		return &config.animation_curve_open;
+	if (type == GROW)
+		return &config.animation_curve_grow;
 	if (type == TAG)
 		return &config.animation_curve_tag;
 	if (type == CLOSE)
