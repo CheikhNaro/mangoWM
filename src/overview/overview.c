@@ -329,6 +329,7 @@ void overview_backup(Client *c) {
 void overview_restore(Client *c, const Arg *arg) {
 	if (!c->ov_card_tree && !c->overview_scene_surface)
 		return;
+	bool hide_after_restore = (arg->ui & c->tags & TAGMASK) == 0;
 
 	c->isfloating = c->overview_isfloatingbak;
 	c->isfullscreen = c->overview_isfullscreenbak;
@@ -339,7 +340,7 @@ void overview_restore(Client *c, const Arg *arg) {
 	c->geom = c->overview_backup_geom;
 	c->bw = c->overview_backup_bw;
 	c->animation.tagining = false;
-	c->is_restoring_from_ov = (arg->ui & c->tags & TAGMASK) == 0 ? true : false;
+	c->is_restoring_from_ov = hide_after_restore;
 
 	// Destroys the card tree and restores the real scene_surface tree.
 	overview_destroy_card(c);
@@ -377,6 +378,22 @@ void overview_restore(Client *c, const Arg *arg) {
 
 	if (c->isfloating && !c->force_tiled_state) {
 		client_set_tiled(c, WLR_EDGE_NONE);
+	}
+
+	if (hide_after_restore) {
+		c->is_restoring_from_ov = false;
+		c->tag_visible = false;
+		c->animation.overining = false;
+		c->animation.overview_enter_anim_set = false;
+		c->animation.running = false;
+		c->animation.should_animate = false;
+		c->animation.tagining = false;
+		c->animation.tagouting = false;
+		c->animation.tagouted = false;
+		c->animation.action = MOVE;
+		c->animainit_geom = c->current = c->pending = c->animation.current =
+			c->geom;
+		client_update_visibility(c);
 	}
 
 	client_sync_layer(c);
