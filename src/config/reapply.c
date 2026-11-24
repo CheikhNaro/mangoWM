@@ -541,8 +541,10 @@ void reset_tag(int old_tag_num) {
 
 int32_t reload_config(const Arg *arg) {
 	int old_tag_num = config.tag_num;
+	// Drop stale runtime overrides so colors come from the config files
+	// (including sourced palettes) on every reload.
+	server.runtime_border_colors_set = false;
 	parse_config();
-	reapply_runtime_border_colors();
 	reset_tag(old_tag_num);
 	reset_option();
 	update_seat_capabilities();
