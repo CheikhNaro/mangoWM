@@ -325,7 +325,9 @@ void fadeout_layer_animation_next_tick(LayerSurface *l) {
 			? (double)passed_time / (double)l->animation.duration
 			: 1.0;
 
-	int32_t type = l->animation.action;
+	int32_t type = layer_close_animation_type(l) == ANIM_TYPE_GROW
+					   ? GROW
+					   : l->animation.action;
 	double factor = find_animation_curve_at(animation_passed, type);
 	int32_t width = l->animation.initial.width +
 					(l->current.width - l->animation.initial.width) * factor;
@@ -340,7 +342,8 @@ void fadeout_layer_animation_next_tick(LayerSurface *l) {
 	wlr_scene_node_set_position(&l->scene->node, x, y);
 
 	if (l->mon) {
-		bool scaling = layer_close_animation_type(l) == ANIM_TYPE_ZOOM;
+		bool scaling = layer_close_animation_type(l) == ANIM_TYPE_ZOOM ||
+					   layer_close_animation_type(l) == ANIM_TYPE_GROW;
 		scene_snapshot_clip_to_box(l->scene, &l->mon->m, scaling, width,
 								   height);
 	}
@@ -437,6 +440,9 @@ void layer_animation_next_tick(LayerSurface *l) {
 			: 1.0;
 
 	int32_t type = l->animation.action == NONE ? MOVE : l->animation.action;
+	if (l->animation.action == OPEN &&
+		layer_open_animation_type(l) == ANIM_TYPE_GROW)
+		type = GROW;
 	double factor = find_animation_curve_at(animation_passed, type);
 
 	int32_t width = l->animation.initial.width +
@@ -485,7 +491,9 @@ void layer_animation_next_tick(LayerSurface *l) {
 		buffer_data.height_scale = (float)height / (float)l->current.height;
 	}
 
-	if (layer_open_animation_type(l) == ANIM_TYPE_ZOOM && !clipped) {
+	if ((layer_open_animation_type(l) == ANIM_TYPE_ZOOM ||
+		 layer_open_animation_type(l) == ANIM_TYPE_GROW) &&
+		!clipped) {
 		wlr_scene_node_for_each_buffer(
 			&l->scene->node, layer_scene_buffer_apply_effect, &buffer_data);
 	}
@@ -497,9 +505,16 @@ void layer_animation_next_tick(LayerSurface *l) {
 		.height = animated.height,
 	};
 
-	if (config.blur && config.blur_layer && !l->no_blur && l->blur)
-		wlr_scene_blur_set_size(l->blur, l->animation.current.width,
-								l->animation.current.height);
+	if (config.blur && config.blur_layer && !l->no_blur && l->blur &&
+		l->layer_surface->surface->current.width > 0) {
+		/* Keep the blur aligned with the animated buffer size (see
+		 * iter_layer_scene_buffers()). */
+		wlr_scene_blur_set_size(
+			l->blur,
+			l->layer_surface->surface->current.width * buffer_data.width_scale,
+			l->layer_surface->surface->current.height *
+				buffer_data.height_scale);
+	}
 
 	if (animation_passed >= 1.0) {
 		l->animation.running = false;
@@ -548,7 +563,9 @@ void init_fadeout_layers(LayerSurface *l) {
 	}
 
 	fadeout_layer->animation.duration =
-		animation_duration_for_type(CLOSE, config.animation_duration_close);
+		layer_close_animation_type(l) == ANIM_TYPE_GROW
+			? config.animation_duration_grow
+			: config.animation_duration_close;
 	fadeout_layer->geom = fadeout_layer->current =
 		fadeout_layer->animainit_geom = fadeout_layer->animation.initial =
 			l->animation.current;
@@ -581,6 +598,14 @@ void init_fadeout_layers(LayerSurface *l) {
 		fadeout_layer->current.y =
 			fadeout_layer->current.y - l->animation.current.y;
 
+	} else if (layer_close_animation_type(l) == ANIM_TYPE_GROW) {
+		int32_t target_height =
+			MANGO_MAX(1, fadeout_layer->animation.initial.height / 10);
+		fadeout_layer->current.width = 0;
+		fadeout_layer->current.height =
+			target_height - fadeout_layer->animation.initial.height;
+		fadeout_layer->current.y =
+			(fadeout_layer->animation.initial.height - target_height) / 2;
 	} else if (layer_close_animation_type(l) == ANIM_TYPE_SLIDE) {
 		// Get the ending absolute coordinates and size of the slide animation
 		set_layer_dir_animaiton(l, &fadeout_layer->current);
@@ -633,6 +658,12 @@ void layer_set_pending_state(LayerSurface *l) {
 								  l->animainit_geom.width / 2;
 			l->animainit_geom.y = usable_area.y + usable_area.height / 2 -
 								  l->animainit_geom.height / 2;
+		} else if (layer_open_animation_type(l) == ANIM_TYPE_GROW) {
+			l->animainit_geom.width = l->geom.width;
+			l->animainit_geom.height = MANGO_MAX(1, l->geom.height / 10);
+			l->animainit_geom.x = l->geom.x;
+			l->animainit_geom.y =
+				l->geom.y + (l->geom.height - l->animainit_geom.height) / 2;
 		} else if (layer_open_animation_type(l) == ANIM_TYPE_SLIDE) {
 
 			set_layer_dir_animaiton(l, &l->animainit_geom);

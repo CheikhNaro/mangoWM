@@ -417,6 +417,26 @@ bool wsov_scene_node_layout_coords(struct wlr_scene_node *node, int *x,
 	return true;
 }
 
+static void wsov_disable_cell_nodes(struct wsov_cell *cell) {
+	if (!cell)
+		return;
+	if (cell->frame)
+		wlr_scene_node_set_enabled(&cell->frame->node, false);
+	if (cell->contents)
+		wlr_scene_node_set_enabled(&cell->contents->node, false);
+	if (cell->foreground)
+		wlr_scene_node_set_enabled(&cell->foreground->node, false);
+	mango_dim_node_set_enabled(cell->dim, false);
+	for (int j = 0; j < 4; j++) {
+		if (cell->border[j])
+			wlr_scene_node_set_enabled(&cell->border[j]->node, false);
+	}
+	for (int j = 0; j < cell->layer_count; j++) {
+		if (cell->layers[j].node)
+			wlr_scene_node_set_enabled(&cell->layers[j].node->node, false);
+	}
+}
+
 void wsov_apply_camera(double progress) {
 	if (!wsov.mon || wsov.cell_count <= 0)
 		return;
@@ -427,6 +447,16 @@ void wsov_apply_camera(double progress) {
 
 	for (int i = 0; i < wsov.cell_count; i++) {
 		struct wsov_cell *cell = &wsov.cells[i];
+		/*
+		 * While opening or closing, only the focused workspace takes part in
+		 * the camera zoom. Letting the other cells follow the camera would
+		 * drag their windows across the output as the viewport scales,
+		 * overlapping the active workspace.
+		 */
+		if ((wsov.closing || wsov.animating) && cell->tag != wsov.camera_tag) {
+			wsov_disable_cell_nodes(cell);
+			continue;
+		}
 		struct wlr_box cell_box = wsov_cell_layout_box(cell);
 		double width = cell_box.width * view.scale_x;
 		double height = cell_box.height * view.scale_y;

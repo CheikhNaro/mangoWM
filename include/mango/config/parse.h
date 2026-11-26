@@ -41,6 +41,7 @@ enum animation_type {
 	ANIM_TYPE_FADE,
 	ANIM_TYPE_SLIDE,
 	ANIM_TYPE_ZOOM,
+	ANIM_TYPE_GROW,
 	ANIM_TYPE_UNKNOWN,
 };
 
@@ -374,6 +375,7 @@ typedef struct {
 	float fadeout_begin_opacity;
 	uint32_t animation_duration_move;
 	uint32_t animation_duration_open;
+	uint32_t animation_duration_grow;
 	uint32_t animation_duration_tag;
 	uint32_t animation_duration_close;
 	uint32_t animation_duration_focus;
@@ -382,6 +384,7 @@ typedef struct {
 	uint32_t animation_duration_wsov_move;
 	AnimationCurve animation_curve_move;
 	AnimationCurve animation_curve_open;
+	AnimationCurve animation_curve_grow;
 	AnimationCurve animation_curve_tag;
 	AnimationCurve animation_curve_close;
 	AnimationCurve animation_curve_focus;
@@ -568,6 +571,7 @@ typedef struct {
 	float group_bar_button_color[4];
 	float scratchpad_width_ratio;
 	float scratchpad_height_ratio;
+	int32_t scratchpad_animation_type;
 	float special_dim;
 	float rootcolor[4];
 	float bordercolor[4];

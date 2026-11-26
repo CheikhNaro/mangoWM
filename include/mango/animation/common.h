@@ -10,7 +10,18 @@
 #include <wlr/util/box.h>
 
 /* What is currently being animated / which animation phase is running. */
-enum { NONE, OPEN, MOVE, CLOSE, TAG, FOCUS, OPAFADEIN, OPAFADEOUT, OVERVIEW };
+enum {
+	NONE,
+	OPEN,
+	MOVE,
+	CLOSE,
+	TAG,
+	FOCUS,
+	OPAFADEIN,
+	OPAFADEOUT,
+	OVERVIEW,
+	GROW
+};
 
 struct dvec2 {
 	double x, y;

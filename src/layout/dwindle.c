@@ -340,20 +340,45 @@ void dwindle_move_next_to(Client *c, Client *target, float ratio, int32_t dir) {
 		return;
 	}
 
-	bool crossed = c->mon != target->mon;
+	Monitor *src_mon = c->mon;
+	bool crossed = src_mon != target->mon;
+	DwindleNode **src_root =
+		crossed ? &src_mon->pertag->dwindle_root[get_mon_curtag(src_mon)]
+				: NULL;
 	int32_t c_cx = c->geom.x + c->geom.width / 2;
 	int32_t c_cy = c->geom.y + c->geom.height / 2;
 	struct wlr_box tgeom = target->geom;
 
-	if (!client_jump_to_monitor(c, target->mon, dir) && c->mon != target->mon)
+	if (crossed)
+		dwindle_remove(src_root, c);
+
+	if (!client_jump_to_monitor(c, target->mon, dir) && c->mon != target->mon) {
+		if (crossed)
+			arrange(src_mon, false, false);
 		return;
+	}
 
 	Monitor *m = c->mon;
 	DwindleNode **root = &m->pertag->dwindle_root[get_mon_curtag(m)];
+	if (crossed)
+		dwindle_remove(root, c);
+
 	DwindleNode *c_leaf = dwindle_find_leaf(*root, c);
 	DwindleNode *target_leaf = dwindle_find_leaf(*root, target);
-	if (!c_leaf || !target_leaf)
+	if (!crossed && (!c_leaf || !target_leaf))
 		return;
+	if (crossed && !target_leaf)
+		target_leaf = dwindle_first_leaf(*root);
+	if (crossed && !target_leaf) {
+		dwindle_insert(root, c, NULL, ratio, true, true, true);
+		arrange(src_mon, false, false);
+		arrange(m, false, false);
+		return;
+	}
+	if (crossed && target_leaf) {
+		target = target_leaf->client;
+		tgeom = target->geom;
+	}
 
 	if (!crossed && c_leaf->parent && c_leaf->parent == target_leaf->parent) {
 		DwindleNode *split = c_leaf->parent;
@@ -365,7 +390,7 @@ void dwindle_move_next_to(Client *c, Client *target, float ratio, int32_t dir) {
 	}
 
 	struct wlr_box area = tgeom;
-	DwindleNode *parent = c_leaf->parent;
+	DwindleNode *parent = crossed ? NULL : c_leaf->parent;
 	if (!crossed && parent) {
 		DwindleNode *sibling =
 			(parent->first == c_leaf) ? parent->second : parent->first;
@@ -382,8 +407,11 @@ void dwindle_move_next_to(Client *c, Client *target, float ratio, int32_t dir) {
 	bool as_first = split_h ? c_cx < (tgeom.x + tgeom.width / 2)
 							: c_cy < (tgeom.y + tgeom.height / 2);
 
-	dwindle_remove(root, c);
+	if (!crossed)
+		dwindle_remove(root, c);
 	dwindle_insert(root, c, target, ratio, as_first, split_h, true);
+	if (crossed)
+		arrange(src_mon, false, false);
 	arrange(m, false, false);
 }
 
@@ -565,6 +593,14 @@ void dwindle_resize_client_step(Monitor *m, Client *c, int32_t dx, int32_t dy) {
 	dwindle_assign(m->pertag->dwindle_root[tag], m->w.x + gap_oh,
 				   m->w.y + gap_ov, m->w.width - 2 * gap_oh,
 				   m->w.height - 2 * gap_ov, gap_ih, gap_iv);
+}
+
+void dwindle_remove_client(Client *c) {
+	Monitor *m;
+	wl_list_for_each(m, &server.monitors, link) {
+		for (uint32_t t = 0; t < PERTAG_SLOTS; t++)
+			dwindle_remove(&m->pertag->dwindle_root[t], c);
+	}
 }
 
 void dwindle_remove_client_in_tag(Monitor *m, uint32_t tag, Client *c) {
