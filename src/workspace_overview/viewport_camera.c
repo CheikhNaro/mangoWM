@@ -446,12 +446,12 @@ void wsov_apply_camera(double progress) {
 	for (int i = 0; i < wsov.cell_count; i++) {
 		struct wsov_cell *cell = &wsov.cells[i];
 		/*
-		 * While closing, only the destination workspace takes part in the
-		 * zoom. Letting the other cells follow the camera would drag their
-		 * windows across the output as the viewport shrinks, overlapping the
-		 * workspace being focused.
+		 * While opening or closing, only the focused workspace takes part in
+		 * the camera zoom. Letting the other cells follow the camera would
+		 * drag their windows across the output as the viewport scales,
+		 * overlapping the active workspace.
 		 */
-		if (wsov.closing && cell->tag != wsov.camera_tag) {
+		if ((wsov.closing || wsov.animating) && cell->tag != wsov.camera_tag) {
 			wsov_disable_cell_nodes(cell);
 			continue;
 		}
