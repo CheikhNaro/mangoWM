@@ -555,7 +555,8 @@ void wsov_layout_live_projection_impl(void) {
 		if (!cell->live_lower_tree || !cell->live_upper_tree ||
 			cell->live_surface_count <= 0)
 			continue;
-		if (!wsov_cell_live_content_visible_in_view(cell, &view)) {
+		if (!wsov_cell_live_content_visible_in_view(cell, &view) ||
+			(wsov.closing && cell->tag != wsov.camera_tag)) {
 			for (int i = 0; i < cell->live_surface_count; i++) {
 				wlr_scene_node_set_enabled(
 					&cell->live_surfaces[i]->scene_surface->buffer->node,
